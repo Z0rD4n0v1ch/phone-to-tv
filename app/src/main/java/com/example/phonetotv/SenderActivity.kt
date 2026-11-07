@@ -2,6 +2,7 @@ package com.example.phonetotv
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -14,6 +15,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -22,11 +24,22 @@ import android.widget.TextView
 import android.widget.Toast
 import kotlin.concurrent.thread
 
+/**
+ * Режим «Передавать»: адрес приставки, поиск, качество, звук и запуск трансляции.
+ * Открывается также по ссылке из QR-кода на экране приставки (ptv://connect?h=…&p=…)
+ * и из плитки в шторке уведомлений.
+ */
 class SenderActivity : Activity() {
 
-    private companion object {
-        const val REQ_CAPTURE = 1
-        const val REQ_NOTIFICATIONS = 2
+    companion object {
+        const val EXTRA_AUTO_START = "autoStart"
+        private const val REQ_CAPTURE = 1
+        private const val REQ_NOTIFICATIONS = 2
+        private const val REQ_AUDIO = 3
+        private const val KEY_AUTO_CONNECT = "auto_connect"
+        private const val KEY_AUTO_QUALITY = "auto_quality"
+        private const val KEY_AUDIO = "audio_to_tv"
+        private const val STATE_AUTO_DONE = "autoDone"
     }
 
     private lateinit var hostInput: EditText
@@ -36,6 +49,9 @@ class SenderActivity : Activity() {
     private lateinit var resSpinner: Spinner
     private lateinit var bitrateSpinner: Spinner
     private lateinit var fpsSpinner: Spinner
+    private lateinit var autoQualityBox: CheckBox
+    private lateinit var audioBox: CheckBox
+    private lateinit var autoConnectBox: CheckBox
     private lateinit var modeButton: Button
     private lateinit var updPanel: LinearLayout
     private lateinit var updText: TextView
@@ -44,11 +60,17 @@ class SenderActivity : Activity() {
     private lateinit var versionButton: Button
     private val updListener: () -> Unit = { renderUpdate() }
 
+    /** PIN из QR-кода — передаётся приставке при подключении. */
+    private var pendingPin = ""
+    private var autoStartDone = false
+    private var pinDialog: AlertDialog? = null
+
     private val prefs by lazy { getSharedPreferences(CastService.PREFS, MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Экран на ТВ"
+        autoStartDone = savedInstanceState?.getBoolean(STATE_AUTO_DONE) ?: false
 
         val pad = (16 * resources.displayMetrics.density).toInt()
         val root = LinearLayout(this).apply {
@@ -91,6 +113,7 @@ class SenderActivity : Activity() {
             setOnClickListener { discoverReceiver() }
         }
         root.addView(findButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        root.addView(hint("Быстрее всего: отсканируйте камерой телефона QR-код с экрана приставки."))
 
         // ----- качество -----
         val (resIdx, bitrateIdx, fpsIdx) = Quality.loadIndexes(prefs)
@@ -103,12 +126,37 @@ class SenderActivity : Activity() {
         root.addView(label("Частота кадров:"))
         fpsSpinner = spinner(Quality.FPS, fpsIdx)
         root.addView(fpsSpinner, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        root.addView(TextView(this).apply {
-            text = "Если картинка дёргается или отстаёт — уменьшите разрешение или битрейт. " +
-                "Если кодер телефона не тянет выбранное качество, оно снизится само."
-            textSize = 12f
-            alpha = 0.7f
-        })
+
+        autoQualityBox = CheckBox(this).apply {
+            text = "Автоподбор качества при слабом Wi‑Fi"
+            isChecked = prefs.getBoolean(KEY_AUTO_QUALITY, true)
+            setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean(KEY_AUTO_QUALITY, c).apply() }
+        }
+        root.addView(autoQualityBox)
+        root.addView(hint("Если сеть не справляется, битрейт снизится сам, а потом вернётся к выбранному."))
+
+        // ----- звук -----
+        audioBox = CheckBox(this).apply {
+            text = "Звук на телевизоре"
+            isChecked = Build.VERSION.SDK_INT >= 29 && prefs.getBoolean(KEY_AUDIO, false) && hasAudioPermission()
+            isEnabled = Build.VERSION.SDK_INT >= 29
+            setOnCheckedChangeListener { _, c -> onAudioToggled(c) }
+        }
+        root.addView(audioBox)
+        root.addView(hint(
+            if (Build.VERSION.SDK_INT >= 29)
+                "Звук приложений пойдёт на ТВ. Некоторые приложения (например, YouTube, Netflix) запрещают его " +
+                    "перехват — у них звук останется на телефоне."
+            else "Передача звука доступна на Android 10 и новее."
+        ))
+
+        autoConnectBox = CheckBox(this).apply {
+            text = "Подключаться сразу при открытии приложения"
+            isChecked = prefs.getBoolean(KEY_AUTO_CONNECT, false)
+            setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean(KEY_AUTO_CONNECT, c).apply() }
+        }
+        root.addView(autoConnectBox)
+        root.addView(hint("Ещё быстрее — плитка «Экран на ТВ» в шторке уведомлений (добавьте её через карандаш в шторке)."))
 
         castButton = Button(this).apply {
             setOnClickListener { onCastClicked() }
@@ -116,6 +164,10 @@ class SenderActivity : Activity() {
         root.addView(castButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
             topMargin = pad
         })
+        if (Build.VERSION.SDK_INT >= 34) {
+            root.addView(hint("Совет: в окне Android выберите «Одно приложение» — на ТВ попадёт только оно, " +
+                "без шторки и уведомлений. Удобно для видео."))
+        }
 
         statusText = TextView(this).apply {
             gravity = Gravity.CENTER_HORIZONTAL
@@ -123,6 +175,8 @@ class SenderActivity : Activity() {
             setPadding(0, pad, 0, 0)
         }
         root.addView(statusText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        root.addView(hint("Пока идёт трансляция, пультом ТВ можно управлять телефоном: OK — пауза, ◄ ► — перемотка, " +
+            "▲ ▼ — громкость телефона.").apply { setPadding(0, pad / 2, 0, 0) })
 
         modeButton = Button(this).apply {
             text = "Сменить режим (принимать на этом устройстве)"
@@ -152,9 +206,69 @@ class SenderActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
         }
         Updater.showWhatsNewIfUpdated(this)
+
+        if (!autoStartDone) {
+            autoStartDone = true
+            if (!handleIntent(intent) && prefs.getBoolean(KEY_AUTO_CONNECT, false) && !CastService.isRunning &&
+                hostInput.text.isNotBlank()
+            ) {
+                statusText.text = "Подключаюсь к ${hostInput.text}…"
+                startCapture()
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_AUTO_DONE, autoStartDone)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Ссылка из QR-кода или запуск из плитки. true — трансляция запускается. */
+    private fun handleIntent(intent: Intent?): Boolean {
+        if (intent == null) return false
+        val data = intent.data
+        if (data != null && data.scheme == "ptv") {
+            val h = data.getQueryParameter("h").orEmpty().trim()
+            if (h.isEmpty()) return false
+            pendingPin = data.getQueryParameter("p").orEmpty().trim()
+            val name = data.getQueryParameter("n").orEmpty()
+            hostInput.setText(h)
+            prefs.edit().putString(CastService.KEY_HOST, h).apply()
+            intent.data = null // чтобы при повороте не запускать снова
+            if (CastService.isRunning) {
+                Toast.makeText(this, "Сначала остановите текущую трансляцию", Toast.LENGTH_SHORT).show()
+                return true
+            }
+            statusText.text = "Приставка из QR-кода: " + (if (name.isNotEmpty()) "$name ($h)" else h)
+            startCapture()
+            return true
+        }
+        if (intent.getBooleanExtra(EXTRA_AUTO_START, false)) {
+            intent.removeExtra(EXTRA_AUTO_START)
+            if (CastService.isRunning) return true
+            if (hostInput.text.isBlank()) {
+                statusText.text = "Сначала укажите приставку: найдите её в сети или отсканируйте QR-код."
+                return true
+            }
+            startCapture()
+            return true
+        }
+        return false
     }
 
     private fun label(text: String) = TextView(this).apply { this.text = text }
+
+    private fun hint(text: String) = TextView(this).apply {
+        this.text = text
+        textSize = 12f
+        alpha = 0.7f
+    }
 
     private fun spinner(options: List<Quality.Option>, selected: Int) = Spinner(this).apply {
         adapter = ArrayAdapter(
@@ -166,16 +280,65 @@ class SenderActivity : Activity() {
     override fun onResume() {
         super.onResume()
         CastService.statusListener = { updateUi(it) }
+        CastService.pinListener = { showPinDialog(it) }
         updateUi(CastService.lastStatus)
         Updater.addListener(updListener)
         Updater.onResume(this)
         renderUpdate()
+        CastService.pinRequested?.let { showPinDialog(it) }
     }
 
     override fun onPause() {
         CastService.statusListener = null
+        CastService.pinListener = null
         Updater.removeListener(updListener)
         super.onPause()
+    }
+
+    // ---------- PIN ----------
+
+    private fun showPinDialog(message: String) {
+        if (pinDialog?.isShowing == true || isFinishing) return
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "PIN с экрана телевизора"
+            textSize = 24f
+            gravity = Gravity.CENTER
+        }
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply { setPadding(pad, pad / 2, pad, 0); addView(input, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)) }
+        pinDialog = AlertDialog.Builder(this)
+            .setTitle("Нужен PIN")
+            .setMessage(message)
+            .setView(box)
+            .setCancelable(false)
+            .setPositiveButton("Подключиться") { _, _ -> CastService.submitPin(input.text.toString().trim()) }
+            .setNegativeButton("Отмена") { _, _ -> CastService.submitPin("") }
+            .show()
+        input.requestFocus()
+    }
+
+    // ---------- звук ----------
+
+    private fun hasAudioPermission() =
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    private fun onAudioToggled(checked: Boolean) {
+        if (checked && !hasAudioPermission()) {
+            // Android называет это «запись звука», хотя берётся только звук приложений, не микрофон.
+            Toast.makeText(this, "Разрешите «Запись аудио» — так Android называет передачу звука приложений", Toast.LENGTH_LONG).show()
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO)
+        }
+        prefs.edit().putBoolean(KEY_AUDIO, checked).apply()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_AUDIO && (grantResults.isEmpty() || grantResults[0] != PackageManager.PERMISSION_GRANTED)) {
+            audioBox.isChecked = false
+            prefs.edit().putBoolean(KEY_AUDIO, false).apply()
+            Toast.makeText(this, "Без разрешения звук останется на телефоне", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ---------- обновление ----------
@@ -238,6 +401,8 @@ class SenderActivity : Activity() {
         }
     }
 
+    // ---------- трансляция ----------
+
     private fun updateUi(status: String) {
         statusText.text = status
         val running = CastService.isRunning
@@ -247,8 +412,11 @@ class SenderActivity : Activity() {
         resSpinner.isEnabled = !running
         bitrateSpinner.isEnabled = !running
         fpsSpinner.isEnabled = !running
+        autoQualityBox.isEnabled = !running
+        audioBox.isEnabled = !running && Build.VERSION.SDK_INT >= 29
         modeButton.isEnabled = !running
         if (::updButton.isInitialized) renderUpdate()
+        if (!running) pinDialog?.dismiss()
         // Сервис мог сменить IP после поиска — показываем актуальный.
         if (running) {
             val saved = prefs.getString(CastService.KEY_HOST, "")
@@ -261,6 +429,11 @@ class SenderActivity : Activity() {
             CastService.stop(this)
             return
         }
+        startCapture()
+    }
+
+    /** Сохраняет настройки и просит у системы разрешение на захват экрана. */
+    private fun startCapture() {
         val host = hostInput.text.toString().trim()
         if (host.isEmpty()) {
             Toast.makeText(this, "Введите IP-адрес приставки", Toast.LENGTH_SHORT).show()
@@ -288,11 +461,16 @@ class SenderActivity : Activity() {
         val quality = Quality.fromIndexes(
             resSpinner.selectedItemPosition, bitrateSpinner.selectedItemPosition, fpsSpinner.selectedItemPosition
         )
-        CastService.start(this, resultCode, data, hostInput.text.toString().trim(), quality)
+        CastService.start(
+            this, resultCode, data, hostInput.text.toString().trim(), pendingPin, quality,
+            autoQuality = autoQualityBox.isChecked,
+            audio = audioBox.isChecked && hasAudioPermission()
+        )
+        pendingPin = ""
         updateUi("Запуск…")
     }
 
-    /** Ищет приставку UDP-широковещанием в локальной сети. */
+    /** Ищет приставку в локальной сети. */
     private fun discoverReceiver() {
         findButton.isEnabled = false
         statusText.text = "Поиск приставки…"
@@ -311,7 +489,7 @@ class SenderActivity : Activity() {
                     statusText.text = "Найдено: ${found.name} (${found.ip})"
                 } else if (!statusText.text.startsWith("Ошибка")) {
                     statusText.text = "Приставка не найдена. Проверьте, что приложение на ней открыто, оба устройства " +
-                        "в одной Wi‑Fi сети и на телефоне выключен VPN. Или введите IP с экрана приставки вручную."
+                        "в одной Wi‑Fi сети и на телефоне выключен VPN. Или отсканируйте QR-код с экрана приставки."
                     hostInput.requestFocus()
                 }
             }

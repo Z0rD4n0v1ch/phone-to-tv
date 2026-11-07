@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Установка обновлений из релизов GitHub -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Звук на ТВ: Android называет это «запись аудио», берётся только звук приложений, не микрофон -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Автозапуск приёма при включении приставки -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Одно приложение и для телефона, и для ТВ: сенсорный экран и Leanback не обязательны -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -35,9 +40,17 @@
         <!-- Режим «Передавать» -->
         <activity
             android:name=".SenderActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="Экран на ТВ"
-            android:launchMode="singleTop" />
+            android:launchMode="singleTop">
+            <!-- Ссылка из QR-кода на экране приставки: ptv://connect?h=IP&p=PIN -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ptv" android:host="connect" />
+            </intent-filter>
+        </activity>
 
         <!-- Режим «Принимать» -->
         <activity
@@ -52,6 +65,28 @@
             android:name=".CastService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <!-- Плитка в шторке уведомлений -->
+        <service
+            android:name=".CastTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="Экран на ТВ"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Автозапуск при включении приставки -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <!-- Результат установки обновления -->
         <receiver
