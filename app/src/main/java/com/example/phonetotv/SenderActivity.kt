@@ -261,6 +261,7 @@ class SenderActivity : Activity() {
         val host = hostInput.text.toString().trim()
         if (host.isEmpty()) {
             Toast.makeText(this, "Введите IP-адрес приставки", Toast.LENGTH_SHORT).show()
+            hostInput.requestFocus() // прокрутит экран к полю адреса
             return
         }
         prefs.edit().putString(CastService.KEY_HOST, host).apply()
@@ -306,8 +307,9 @@ class SenderActivity : Activity() {
                     prefs.edit().putString(CastService.KEY_HOST, found.ip).apply()
                     statusText.text = "Найдено: ${found.name} (${found.ip})"
                 } else if (!statusText.text.startsWith("Ошибка")) {
-                    statusText.text = "Приставка не найдена. Убедитесь, что приложение на ней запущено " +
-                        "и оба устройства в одной Wi‑Fi сети, или введите IP вручную."
+                    statusText.text = "Приставка не найдена. Проверьте, что приложение на ней открыто, оба устройства " +
+                        "в одной Wi‑Fi сети и на телефоне выключен VPN. Или введите IP с экрана приставки вручную."
+                    hostInput.requestFocus()
                 }
             }
         }
