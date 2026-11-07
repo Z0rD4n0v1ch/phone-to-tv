@@ -33,15 +33,4 @@ app/src/main/java/com/example/phonetotv/
   Updater.kt            автообновление из релизов GitHub
   Protocol.kt           формат потока (TCP :5000, поиск UDP :5001)
 .github/workflows/release.yml   сборка APK и релиз по тегу
-make-key.sh           создание ключа подписи (один раз)
-release.sh            выпуск новой версии
-sync.sh               отправка на GitHub
 ```
-
-## Новая версия
-
-```
-bash release.sh 1.2 "Что нового"
-```
-
-GitHub Actions соберёт APK и создаст релиз, а установленные приложения сами предложат обновиться.
