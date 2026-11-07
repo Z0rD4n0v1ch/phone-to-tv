@@ -18,13 +18,13 @@
         android:banner="@drawable/banner"
         android:icon="@drawable/ic_launcher"
         android:label="Экран на ТВ"
-        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+        android:theme="@style/AppTheme">
 
         <!-- Точка входа: на ТВ сразу открывает приём, на телефоне — выбранный режим -->
         <activity
             android:name=".LauncherActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/AppTheme.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -46,7 +46,7 @@
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
-            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+            android:theme="@style/AppTheme.Fullscreen" />
 
         <service
             android:name=".CastService"

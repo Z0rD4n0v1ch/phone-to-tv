@@ -138,7 +138,9 @@ class SenderActivity : Activity() {
             isAllCaps = false
             textSize = 13f
             alpha = 0.7f
-            setOnClickListener { Updater.check(this@SenderActivity, manual = true) }
+            setOnClickListener {
+                if (Updater.release != null) onUpdateClicked() else Updater.check(this@SenderActivity, manual = true)
+            }
         }
         root.addView(versionButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
@@ -195,6 +197,7 @@ class SenderActivity : Activity() {
             Updater.Stage.ERROR -> if (r == null) "Версия $current · ${Updater.message}" else "Версия $current"
             else -> "Версия $current · проверить обновления"
         }
+        if (r != null && Updater.stage == Updater.Stage.AVAILABLE) versionButton.text = "Версия $current · обновить до ${r.version}"
         if (r == null) {
             updPanel.visibility = View.GONE
             return

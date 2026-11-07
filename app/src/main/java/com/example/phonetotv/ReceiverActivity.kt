@@ -97,6 +97,10 @@ class ReceiverActivity : Activity(), SurfaceHolder.Callback {
     override fun onResume() {
         super.onResume()
         Updater.onResume(this)
+        // На приставке приложение часто просто сворачивают — проверяем при каждом открытии.
+        if (Updater.stage == Updater.Stage.IDLE || Updater.stage == Updater.Stage.UP_TO_DATE) {
+            Updater.check(this, manual = false)
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {

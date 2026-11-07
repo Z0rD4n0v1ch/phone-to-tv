@@ -34,7 +34,7 @@ object Updater {
 
     private const val REPO = "Z0rD4n0v1ch/phone-to-tv"
     private const val UA = "phone-to-tv-app"
-    private const val CHECK_EVERY_MS = 30 * 60 * 1000L
+    private const val CHECK_EVERY_MS = 10 * 60 * 1000L
     const val ACTION_INSTALL_STATUS = "com.example.phonetotv.INSTALL_STATUS"
 
     private const val PREFS = "updater"
