@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Установка обновлений из релизов GitHub -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Одно приложение и для телефона, и для ТВ: сенсорный экран и Leanback не обязательны -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -50,5 +52,10 @@
             android:name=".CastService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <!-- Результат установки обновления -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
     </application>
 </manifest>

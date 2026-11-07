@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -59,6 +60,15 @@ class ReceiverActivity : Activity(), SurfaceHolder.Callback {
 
     private val surfaceLock = Object()
 
+    /** Обновление: на экране ожидания показываем, что есть новая версия; ставится кнопкой OK на пульте. */
+    private val updListener: () -> Unit = { if (infoText.visibility == View.VISIBLE && clientSocket == null) showWaiting() }
+    private val updTimer = object : Runnable {
+        override fun run() {
+            if (clientSocket == null) Updater.check(this@ReceiverActivity, manual = false)
+            infoText.postDelayed(this, 60 * 60 * 1000L)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -72,7 +82,7 @@ class ReceiverActivity : Activity(), SurfaceHolder.Callback {
 
         infoText = TextView(this).apply {
             setTextColor(Color.WHITE)
-            textSize = 28f
+            textSize = 24f
             gravity = Gravity.CENTER
             setBackgroundColor(Color.BLACK)
         }
@@ -81,6 +91,24 @@ class ReceiverActivity : Activity(), SurfaceHolder.Callback {
         ))
         setContentView(root)
         hideSystemUi()
+        Updater.showWhatsNewIfUpdated(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Updater.onResume(this)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        val ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER ||
+            keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A
+        if (ok && clientSocket == null && Updater.release != null &&
+            Updater.stage != Updater.Stage.DOWNLOADING && Updater.stage != Updater.Stage.INSTALLING
+        ) {
+            Updater.install(this)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onStart() {
@@ -92,11 +120,15 @@ class ReceiverActivity : Activity(), SurfaceHolder.Callback {
             acquire()
         }
         showWaiting()
+        Updater.addListener(updListener)
+        infoText.postDelayed(updTimer, 60 * 60 * 1000L)
         thread(name = "video-server") { serverLoop() }
         thread(name = "discovery") { discoveryLoop() }
     }
 
     override fun onStop() {
+        Updater.removeListener(updListener)
+        infoText.removeCallbacks(updTimer)
         running = false
         try { serverSocket?.close() } catch (_: Exception) {}
         try { clientSocket?.close() } catch (_: Exception) {}
@@ -319,8 +351,23 @@ class ReceiverActivity : Activity(), SurfaceHolder.Callback {
         val note = waitingNote?.let { "\n\n$it" } ?: ""
         val back = if (LauncherActivity.isTv(this)) "" else "\n\nНазад — сменить режим"
         infoText.text = "Ожидание подключения телефона…\n\nIP этого устройства:\n$ipText\n\n" +
-            "Порт ${Protocol.VIDEO_PORT}$note$back"
+            "Порт ${Protocol.VIDEO_PORT}$note$back" + updateLine()
         infoText.visibility = View.VISIBLE
+    }
+
+    /** Строка об обновлении для экрана ожидания. */
+    private fun updateLine(): String {
+        val r = Updater.release ?: return "\n\nВерсия ${Updater.currentVersion(this)}"
+        val text = when (Updater.stage) {
+            Updater.Stage.DOWNLOADING -> "Скачиваю обновление ${r.version}… ${Updater.progress}%"
+            Updater.Stage.INSTALLING -> "Устанавливаю ${r.version} — подтвердите установку на экране"
+            Updater.Stage.PERMISSION -> Updater.message.ifEmpty {
+                "Разрешите установку из этого источника и вернитесь — обновление продолжится само"
+            }
+            Updater.Stage.ERROR -> "Не удалось обновить (${Updater.message}). Нажмите OK, чтобы повторить"
+            else -> "Доступна версия ${r.version} — нажмите OK на пульте, чтобы обновить"
+        }
+        return "\n\n⬆ $text"
     }
 
     /** Подгоняет SurfaceView под пропорции видео (чёрные поля по краям). */
