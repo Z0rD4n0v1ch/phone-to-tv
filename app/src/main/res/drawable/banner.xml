@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#0D47A1" android:pathData="M0,0h320v180h-320z" />
+    <!-- телефон -->
+    <path android:fillColor="#FFFFFF" android:pathData="M40,45h44v90h-44z" />
+    <path android:fillColor="#1E88E5" android:pathData="M44,52h36v70h-36z" />
+    <!-- стрелка -->
+    <path android:fillColor="#FFFFFF" android:pathData="M100,84h60v12h-60z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M156,70l24,20l-24,20z" />
+    <!-- телевизор -->
+    <path android:fillColor="#FFFFFF" android:pathData="M196,45h96v66h-96z" />
+    <path android:fillColor="#1E88E5" android:pathData="M202,51h84v54h-84z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M228,118h32v8h-32z" />
+</vector>

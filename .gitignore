@@ -1,0 +1,21 @@
+# Сборка и настройки Android Studio
+.gradle/
+.kotlin/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Готовые APK и ключи подписи — не в репозиторий
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.base64.txt
+
+.DS_Store
+Thumbs.db

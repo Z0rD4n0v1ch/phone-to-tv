@@ -1,0 +1,82 @@
+name: Сборка APK и релиз
+
+# Запускается, когда на GitHub приходит тег вида v1.2 (его ставит release.sh).
+# Можно запустить и вручную: Actions → «Сборка APK и релиз» → Run workflow (тогда APK будут во вкладке Artifacts).
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Версия из тега
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0-dev"; fi
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Ключ подписи (если задан в секретах)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "Подпись: свой ключ"
+          else
+            echo "::warning::Секрет KEYSTORE_BASE64 не задан — APK подписаны временным отладочным ключом. Обновление поверх такой версии не установится, см. README."
+          fi
+
+      - name: Сборка
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleRelease \
+            -PappVersionName=${{ steps.ver.outputs.name }} -PappVersionCode=${{ steps.ver.outputs.code }}
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*.apk "dist/PhoneToTv-${{ steps.ver.outputs.name }}.apk"
+          ls -la dist
+
+      - name: Что нового (из описания тега)
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          NOTES=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          [ -n "$NOTES" ] || NOTES="Версия ${{ steps.ver.outputs.name }}"
+          {
+            echo "$NOTES"
+            echo
+            echo "Один APK для телефона и ТВ-приставки: на приставке сразу включается приём, на телефоне — передача."
+            echo "Обновите приложение и на телефоне, и на приставке: версии должны совпадать."
+          } > notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: dist/*.apk
+
+      - name: Релиз на GitHub
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Экран на ТВ ${{ steps.ver.outputs.name }}
+          body_path: notes.md
+          files: dist/*.apk
